@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <title>JLPT 단어장</title>
+  <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#16161a" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="JLPT 단어장" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top">
+    <h1>JLPT 단어장</h1>
+    <nav class="levels" id="levels"></nav>
+  </header>
+
+  <main id="main"></main>
+
+  <nav class="tabbar">
+    <button data-tab="list" class="active"><span class="ico">📖</span>단어장</button>
+    <button data-tab="quiz"><span class="ico">🃏</span>퀴즈</button>
+    <button data-tab="wrong"><span class="ico">📝</span>오답노트</button>
+  </nav>
+
+  <script>const RAW = {};</script>
+  <script src="data/n5.js"></script>
+  <script src="data/n4.js"></script>
+  <script src="data/n3.js"></script>
+  <script src="data/n2.js"></script>
+  <script src="data/n1.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
