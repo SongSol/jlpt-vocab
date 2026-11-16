@@ -290,23 +290,57 @@ function renderQuizSetup() {
 function makeChoices(mode, target) {
   const answer = answerOf(mode, target);
   // 뜻이 같은 단어가 오답 보기로 나오면 정답이 두 개가 되므로 제외
-  let candidates = words().filter(
-    (w) => w.id !== target.id && answerOf(mode, w) !== answer && w.meaning !== target.meaning
-  );
-  if (mode === 'reading') {
-    // 글자 수가 비슷한 읽기를 오답으로 써서 난이도를 올림
-    candidates = candidates.filter(hasKanji);
-    candidates = shuffle(candidates)
-      .sort((a, b) => Math.abs(a.reading.length - answer.length) - Math.abs(b.reading.length - answer.length))
-      .slice(0, 10);
-  }
+  const others = words().filter((w) => w.id !== target.id && w.meaning !== target.meaning);
+  const options =
+    mode === 'reading' ? readingDecoys(target, others) : sameTypeFirst(target, others).map((w) => answerOf(mode, w));
   const wrongs = [];
-  for (const w of shuffle(candidates)) {
-    const v = answerOf(mode, w);
-    if (!wrongs.includes(v)) wrongs.push(v);
+  for (const v of options) {
+    if (v !== answer && !wrongs.includes(v)) wrongs.push(v);
     if (wrongs.length === 3) break;
   }
   return shuffle([answer, ...wrongs]);
+}
+
+// 단어를 한자 부분과 가나 부분으로 나누고 각 부분의 읽기를 붙임
+// 例) 間に合う → [間:ま][に][合:あ][う]
+const isHiragana = (s) => /^[ぁ-ゟ]/.test(s);
+function readingParts(w) {
+  const segs = w.word.match(/[ぁ-ゟ]+|[^ぁ-ゟ]+/g);
+  const m = w.reading.match(new RegExp('^' + segs.map((s) => (isHiragana(s) ? s : '(.+?)')).join('') + '$'));
+  if (!m) return [{ kanji: true, text: w.reading }];
+  let g = 1;
+  return segs.map((s) => (isHiragana(s) ? { kanji: false, text: s } : { kanji: true, text: m[g++] }));
+}
+
+// 読み方 오답: 한자 부분 읽기만 다른 단어의 것으로 바꾸고 가나(送り仮名 등)는 그대로 둬서,
+// 가나만 보고 정답을 고를 수 없게 함. 例) 顧みる → こころみる / はぶみる ...
+function readingDecoys(target, others) {
+  const parts = readingParts(target);
+  const slots = parts.flatMap((p, i) => (p.kanji ? [i] : []));
+  const pool = others.filter(hasKanji).flatMap((w) => readingParts(w).filter((p) => p.kanji).map((p) => p.text));
+  const decoys = [];
+  for (let k = 0; k < 12; k++) {
+    const i = slots[Math.floor(Math.random() * slots.length)];
+    const len = parts[i].text.length;
+    // 길이가 비슷한 읽기 중에서 고름
+    const near = shuffle(pool).sort((a, b) => Math.abs(a.length - len) - Math.abs(b.length - len)).slice(0, 20);
+    const pick = near[Math.floor(Math.random() * near.length)];
+    decoys.push(parts.map((p, j) => (j === i ? pick : p.text)).join(''));
+  }
+  return decoys;
+}
+
+// 품사를 대략 구분해서 같은 품사의 보기를 우선 사용 (동사 문제에 명사 뜻이 섞이지 않게)
+function wordType(w) {
+  const m = w.meaning.split(',')[0].trim();
+  if (m.endsWith('다')) return w.word.endsWith('い') ? 'adj' : 'verb';
+  if (m.endsWith('함')) return 'na';
+  return 'noun';
+}
+
+function sameTypeFirst(target, others) {
+  const t = wordType(target);
+  return shuffle(others).sort((a, b) => (wordType(a) !== t) - (wordType(b) !== t));
 }
 
 function startQuiz(pool) {
