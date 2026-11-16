@@ -83,7 +83,14 @@ main {
 .tabbar button.active .ico { filter: none; opacity: 1; }
 
 /* 단어장 */
-.toolbar { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.toolbar {
+  display: flex; flex-direction: column; gap: 10px;
+  /* 스크롤해도 상단 헤더 바로 아래에 고정 */
+  position: sticky; top: var(--top-h, 0px); z-index: 9;
+  background: var(--bg);
+  margin: -14px -16px 12px; padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--line);
+}
 .search {
   width: 100%; padding: 11px 14px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--surface); color: var(--text);

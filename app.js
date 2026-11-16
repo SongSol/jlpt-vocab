@@ -466,6 +466,10 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- 시작 ----------
+// 상단 헤더 높이를 CSS 변수로 넘겨서 검색/필터 바가 그 아래에 고정되게 함
+const $top = document.querySelector('.top');
+new ResizeObserver(() => document.documentElement.style.setProperty('--top-h', `${$top.offsetHeight}px`)).observe($top);
+
 renderLevels();
 render();
 
