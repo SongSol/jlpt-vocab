@@ -32,6 +32,8 @@ const state = {
   hideReading: false,
   hideMeaning: false,
   revealed: new Set(),
+  order: 'sorted', // 'sorted' | 'shuffled'
+  shuffled: null,
   mode: store.get('mode', 'meaning'),
   count: store.get('count', 10),
   scope: 'all',
@@ -56,6 +58,12 @@ function shuffle(arr) {
 
 const words = () => WORDS[state.level];
 const wrongWords = () => words().filter((w) => state.wrong[w.id]);
+
+// 読み方 기준 あいうえお순 (레벨별로 한 번만 정렬)
+const collator = new Intl.Collator('ja');
+const sortedCache = {};
+const sortedWords = () =>
+  (sortedCache[state.level] ??= [...words()].sort((a, b) => collator.compare(a.reading, b.reading)));
 const hasKanji = (w) => w.word !== w.reading;
 
 // 모드별로 정답으로 쓰는 필드
@@ -107,6 +115,10 @@ function renderList() {
       <div class="toggles">
         <button class="chip ${state.hideReading ? 'on' : ''}" data-toggle="hideReading">読み方 가리기</button>
         <button class="chip ${state.hideMeaning ? 'on' : ''}" data-toggle="hideMeaning">뜻 가리기</button>
+      </div>
+      <div class="toggles">
+        <button class="chip" data-order="sorted">あいうえお순</button>
+        <button class="chip" data-order="shuffled">🔀 섞기</button>
         <span class="count"></span>
       </div>
     </div>
@@ -125,6 +137,15 @@ function renderList() {
       renderRows();
     })
   );
+  $main.querySelectorAll('[data-order]').forEach((b) =>
+    b.addEventListener('click', () => {
+      // 섞기는 누를 때마다 새로 섞음
+      state.order = b.dataset.order;
+      state.shuffled = state.order === 'shuffled' ? shuffle(words()) : null;
+      renderRows();
+      window.scrollTo(0, 0);
+    })
+  );
   $main.querySelector('.word-list').addEventListener('click', (e) => {
     const li = e.target.closest('li[data-id]');
     if (!li) return;
@@ -137,7 +158,12 @@ function renderList() {
 
 function renderRows() {
   const q = state.query.trim().toLowerCase();
-  const list = words().filter(
+  if (state.order === 'shuffled' && state.shuffled?.[0]?.id.split('-')[0] !== state.level) {
+    state.shuffled = shuffle(words());
+  }
+  $main.querySelectorAll('[data-order]').forEach((b) => b.classList.toggle('on', b.dataset.order === state.order));
+  const base = state.order === 'shuffled' ? state.shuffled : sortedWords();
+  const list = base.filter(
     (w) => !q || w.word.includes(q) || w.reading.includes(q) || w.meaning.toLowerCase().includes(q)
   );
   $main.querySelector('.count').textContent = `${list.length}개`;
