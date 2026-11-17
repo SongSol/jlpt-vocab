@@ -1,3 +1,5 @@
+// 배포할 때마다 올림 (앱 상단 오른쪽에 표시돼서 폰이 최신인지 확인 가능)
+const APP_VERSION = '2026.11.18-1';
 const LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1'];
 const MODES = {
   meaning: { title: '뜻 맞추기', desc: '단어를 보고 뜻 고르기', badge: '意', label: '이 단어의 뜻은?' },
@@ -566,6 +568,7 @@ document.addEventListener('keydown', (e) => {
 const $top = document.querySelector('.top');
 new ResizeObserver(() => document.documentElement.style.setProperty('--top-h', `${$top.offsetHeight}px`)).observe($top);
 
+document.getElementById('version').textContent = `v${APP_VERSION}`;
 renderLevels();
 render();
 
