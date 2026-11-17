@@ -1,10 +1,11 @@
 // 배포할 때마다 올림 (앱 상단 오른쪽에 표시돼서 폰이 최신인지 확인 가능)
-const APP_VERSION = '2026.11.18-1';
+const APP_VERSION = '2026.11.18-2';
 const LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1'];
 const MODES = {
   meaning: { title: '뜻 맞추기', desc: '단어를 보고 뜻 고르기', badge: '意', label: '이 단어의 뜻은?' },
   reading: { title: '読み方 맞추기', desc: '한자를 보고 읽는 법 고르기', badge: 'あ', label: '읽는 법은?' },
   word: { title: '단어 맞추기', desc: '뜻을 보고 단어 고르기', badge: '字', label: '이 뜻의 단어는?' },
+  sentence: { title: '문장 読み方', desc: '문장 속 밑줄 단어 읽기 (JLPT 문제1 형식)', badge: '文', label: '밑줄 친 단어의 읽는 법은?' },
   mix: { title: '전부 섞기', desc: '세 가지 유형이 랜덤으로 출제', badge: '混' },
 };
 
@@ -183,6 +184,7 @@ function rowHtml(w) {
     <span class="w">${esc(w.word)}${dot}</span>
     <span class="m${hm}">${esc(w.meaning)}</span>
     <span class="r${hr}">${hasKanji(w) ? esc(w.reading) : '&nbsp;'}</span>
+    ${open && w.examples ? w.examples.map((e) => `<span class="ex jp">${esc(e.before)}<u>${esc(e.marked)}</u>${esc(e.after)}<small>${esc(e.ko)}</small></span>`).join('') : ''}
   </li>`;
 }
 
@@ -226,6 +228,7 @@ function renderWrong() {
 function quizPool() {
   let pool = state.scope === 'wrong' ? wrongWords() : words();
   if (state.mode === 'reading') pool = pool.filter(hasKanji);
+  if (state.mode === 'sentence') pool = pool.filter((w) => w.examples);
   return pool;
 }
 
@@ -339,8 +342,9 @@ function mutateReading(s) {
     // 탁음 ↔ 청음: こう → ごう
     () => VOICE[cur[0]] && ((m[i] = VOICE[cur[0]] + cur.slice(1)), true),
     // 장음 넣기: と → とう, せ → せい
-    () => (v === 'o' || v === 'u') && next !== 'う' && (m.splice(i + 1, 0, 'う'), true),
-    () => v === 'e' && next !== 'い' && (m.splice(i + 1, 0, 'い'), true),
+    // (う段은 くう・すう・ゅう처럼 실제로 자주 나오는 것만, ん 앞에는 넣지 않음: ほうもうん 방지)
+    () => (v === 'o' || cur[1] === 'ゅ' || 'くすつふぐ'.includes(cur)) && next !== 'う' && next !== 'ん' && (m.splice(i + 1, 0, 'う'), true),
+    () => v === 'e' && next !== 'い' && next !== 'ん' && (m.splice(i + 1, 0, 'い'), true),
     // 장음 빼기: とう → と
     () => ((next === 'う' && (v === 'o' || v === 'u')) || (next === 'い' && v === 'e')) && (m.splice(i + 1, 1), true),
     // っ 넣기/빼기: がく+こう ↔ がっこう
@@ -348,7 +352,7 @@ function mutateReading(s) {
     () => i > 0 && prev !== 'っ' && 'くきちつ'.includes(cur) && /^[かきくけこさしすせそたちつてとぱぴぷぺぽ]/.test(next || '') && ((m[i] = 'っ'), true),
     // 요음 바꾸기: きょう ↔ きゅう, きょ → き, き → きょ
     () => SMALL[cur[1]] && ((m[i] = cur[0] + (cur[1] === 'ょ' ? 'ゅ' : 'ょ')), true),
-    () => SMALL[cur[1]] && ((m[i] = cur[0]), true),
+    () => SMALL[cur[1]] && next !== 'う' && ((m[i] = cur[0]), true), // きょう → きう 같은 건 만들지 않음
     () => cur.length === 1 && v === 'i' && ((m[i] = cur + 'ょ'), true),
     // ん 빼기
     () => cur === 'ん' && m.length > 2 && (m.splice(i, 1), true),
@@ -418,7 +422,13 @@ function startQuiz(pool) {
     mode: state.mode,
     questions: picked.map((w) => {
       const mode = modeFor(w);
-      return { word: w, mode, choices: makeChoices(mode, w) };
+      if (mode === 'sentence') {
+        // 예문 속 활용형(費やして 등)의 읽기를 묻고, 오답도 그 활용형을 비틀어 만듦
+        const ex = w.examples[Math.floor(Math.random() * w.examples.length)];
+        const target = { ...w, word: ex.marked, reading: ex.reading };
+        return { word: w, mode, example: ex, answer: ex.reading, choices: makeChoices('reading', target) };
+      }
+      return { word: w, mode, answer: answerOf(mode, w), choices: makeChoices(mode, w) };
     }),
     idx: 0,
     picked: null,
@@ -435,13 +445,16 @@ function renderQuestion() {
   const q = qz.questions[qz.idx];
   const w = q.word;
   const m = MODES[q.mode];
-  const answer = answerOf(q.mode, w);
+  const answer = q.answer;
+  const ex = q.example;
   const answered = qz.picked !== null;
   const isOk = qz.picked === answer;
   const prompt =
-    q.mode === 'word'
-      ? `<div class="big ko">${esc(w.meaning)}</div>`
-      : `<div class="big jp">${esc(w.word)}</div>`;
+    q.mode === 'sentence'
+      ? `<div class="sentence jp">${esc(ex.before)}<u>${esc(ex.marked)}</u>${esc(ex.after)}</div>`
+      : q.mode === 'word'
+        ? `<div class="big ko">${esc(w.meaning)}</div>`
+        : `<div class="big jp">${esc(w.word)}</div>`;
   const choiceJp = q.mode !== 'meaning';
 
   $main.innerHTML = `
@@ -452,7 +465,7 @@ function renderQuestion() {
     </div>
 
     <div class="card-wrap">
-      <div class="card ${answered ? 'flipped' : ''}">
+      <div class="card ${answered ? 'flipped' : ''} ${ex ? 'tall' : ''}">
         <div class="face front">
           <span class="label">${m.label}</span>
           ${prompt}
@@ -462,6 +475,7 @@ function renderQuestion() {
           ${hasKanji(w) ? `<div class="reading">${esc(w.reading)}</div>` : ''}
           <div class="word">${esc(w.word)}</div>
           <div class="meaning">${esc(w.meaning)}</div>
+          ${ex ? `<div class="ex-ko">${esc(ex.before + ex.marked + ex.after)}<br />${esc(ex.ko)}</div>` : ''}
         </div>
       </div>
     </div>
@@ -494,8 +508,8 @@ function renderQuestion() {
 function pick(choice) {
   const qz = state.quiz;
   if (qz.picked !== null) return;
-  const { word: w, mode } = qz.questions[qz.idx];
-  const ok = choice === answerOf(mode, w);
+  const { word: w, answer } = qz.questions[qz.idx];
+  const ok = choice === answer;
   qz.picked = choice;
   if (ok) {
     qz.score++;
