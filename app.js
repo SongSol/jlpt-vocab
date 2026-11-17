@@ -312,11 +312,73 @@ function readingParts(w) {
   return segs.map((s) => (isHiragana(s) ? { kanji: false, text: s } : { kanji: true, text: m[g++] }));
 }
 
-// 読み方 오답: 한자 부분 읽기만 다른 단어의 것으로 바꾸고 가나(送り仮名 등)는 그대로 둬서,
-// 가나만 보고 정답을 고를 수 없게 함. 例) 顧みる → こころみる / はぶみる ...
+// ---- 読み方 비틀기 (JLPT식 헷갈리는 오답) ----
+const VOWEL = {};
+['あかさたなはまやらわがざだばぱ', 'いきしちにひみりぎじぢびぴ', 'うくすつぬふむゆるぐずづぶぷ', 'えけせてねへめれげぜでべぺ', 'おこそとのほもよろをごぞどぼぽ']
+  .forEach((row, i) => [...row].forEach((c) => (VOWEL[c] = 'aiueo'[i])));
+const VOICE = {};
+['かが', 'きぎ', 'くぐ', 'けげ', 'こご', 'さざ', 'しじ', 'すず', 'せぜ', 'そぞ', 'ただ', 'てで', 'とど', 'はば', 'ひび', 'ふぶ', 'へべ', 'ほぼ']
+  .forEach(([a, b]) => ((VOICE[a] = b), (VOICE[b] = a)));
+Object.assign(VOICE, { ぱ: 'ば', ぴ: 'び', ぷ: 'ぶ', ぺ: 'べ', ぽ: 'ぼ' });
+const SMALL = { ゃ: 'a', ゅ: 'u', ょ: 'o' };
+
+// 'きょう' → ['きょ', 'う'] 처럼 박(모라) 단위로 나눔
+const toMorae = (s) => s.match(/.[ゃゅょぁぃぅぇぉ]?/g) || [];
+const vowelOf = (m) => SMALL[m[1]] || VOWEL[m[0]];
+
+// 정답 읽기를 한 군데만 살짝 바꿈. 바꿀 수 없으면 null
+function mutateReading(s) {
+  const m = toMorae(s);
+  const i = Math.floor(Math.random() * m.length);
+  const prev = m[i - 1], cur = m[i], next = m[i + 1];
+  // あいうえお・ん・っ 자체는 장음/요음 규칙의 기준으로 쓰지 않음 (とううごう 같은 것 방지)
+  const v = 'あいうえおんっ'.includes(cur) ? null : vowelOf(cur);
+  const rules = [
+    // 탁음 ↔ 청음: こう → ごう
+    () => VOICE[cur[0]] && ((m[i] = VOICE[cur[0]] + cur.slice(1)), true),
+    // 장음 넣기: と → とう, せ → せい
+    () => (v === 'o' || v === 'u') && next !== 'う' && (m.splice(i + 1, 0, 'う'), true),
+    () => v === 'e' && next !== 'い' && (m.splice(i + 1, 0, 'い'), true),
+    // 장음 빼기: とう → と
+    () => ((next === 'う' && (v === 'o' || v === 'u')) || (next === 'い' && v === 'e')) && (m.splice(i + 1, 1), true),
+    // っ 넣기/빼기: がく+こう ↔ がっこう
+    () => cur === 'っ' && ((m[i] = 'く'), true),
+    () => i > 0 && prev !== 'っ' && 'くきちつ'.includes(cur) && /^[かきくけこさしすせそたちつてとぱぴぷぺぽ]/.test(next || '') && ((m[i] = 'っ'), true),
+    // 요음 바꾸기: きょう ↔ きゅう, きょ → き, き → きょ
+    () => SMALL[cur[1]] && ((m[i] = cur[0] + (cur[1] === 'ょ' ? 'ゅ' : 'ょ')), true),
+    () => SMALL[cur[1]] && ((m[i] = cur[0]), true),
+    () => cur.length === 1 && v === 'i' && ((m[i] = cur + 'ょ'), true),
+    // ん 빼기
+    () => cur === 'ん' && m.length > 2 && (m.splice(i, 1), true),
+  ];
+  for (const rule of shuffle(rules)) {
+    if (rule()) return m.join('');
+  }
+  return null;
+}
+
+// 読み方 오답: 정답 읽기의 한자 부분을 살짝 비튼 것 위주로 만들고(とうごう → とうこう / どうごう),
+// 모자라면 다른 단어의 한자 읽기로 채움. 가나(送り仮名 등)는 그대로 둬서 가나로는 구별 못 하게 함
 function readingDecoys(target, others) {
   const parts = readingParts(target);
   const slots = parts.flatMap((p, i) => (p.kanji ? [i] : []));
+  const mutated = [];
+  for (let k = 0; k < 40 && mutated.length < 6; k++) {
+    const i = slots[Math.floor(Math.random() * slots.length)];
+    let text = mutateReading(parts[i].text);
+    // 가끔 두 군데를 바꿔서 너무 뻔하지 않게
+    if (text && Math.random() < 0.3) text = mutateReading(text) || text;
+    if (!text) continue;
+    const full = parts.map((p, j) => (j === i ? text : p.text)).join('');
+    if (full !== target.reading && !mutated.includes(full) && plausible(full)) mutated.push(full);
+  }
+  return [...shuffle(mutated), ...otherReadingDecoys(parts, slots, others).filter(plausible)];
+}
+
+// 일본어 읽기로 말이 안 되는 형태는 보기에서 제외
+const plausible = (r) => !/^[ゃゅょっんー]|っ$|っっ|[ゃゅょ][ゃゅょ]|[あいうえおんっ][ゃゅょ]|([おこそとのほもよろごぞどぼぽうくすつぬふむゆるぐずぶぷょゅ]う)う/.test(r);
+
+function otherReadingDecoys(parts, slots, others) {
   const pool = others.filter(hasKanji).flatMap((w) => readingParts(w).filter((p) => p.kanji).map((p) => p.text));
   const decoys = [];
   for (let k = 0; k < 12; k++) {
