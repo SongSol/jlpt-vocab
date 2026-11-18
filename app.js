@@ -1,13 +1,31 @@
 // 배포할 때마다 올림 (앱 상단 오른쪽에 표시돼서 폰이 최신인지 확인 가능)
-const APP_VERSION = '2026.11.18-3';
-const LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1'];
-const MODES = {
-  meaning: { title: '뜻 맞추기', desc: '단어를 보고 뜻 고르기', badge: '意', label: '이 단어의 뜻은?' },
-  reading: { title: '読み方 맞추기', desc: '한자를 보고 읽는 법 고르기', badge: 'あ', label: '읽는 법은?' },
-  word: { title: '단어 맞추기', desc: '뜻을 보고 단어 고르기', badge: '字', label: '이 뜻의 단어는?' },
-  sentence: { title: '문장 読み方', desc: '문장 속 밑줄 단어 읽기 (JLPT 문제1 형식)', badge: '文', label: '밑줄 친 단어의 읽는 법은?' },
-  mix: { title: '전부 섞기', desc: '세 가지 유형이 랜덤으로 출제', badge: '混' },
+const APP_VERSION = '2026.11.19-1';
+// 과목: 설정 탭에서 JLPT / TOEIC 전환
+const SUBJECTS = {
+  jlpt: {
+    name: 'JLPT',
+    levels: ['N5', 'N4', 'N3', 'N2', 'N1'],
+    modes: {
+      meaning: { title: '뜻 맞추기', desc: '단어를 보고 뜻 고르기', badge: '意', label: '이 단어의 뜻은?' },
+      reading: { title: '読み方 맞추기', desc: '한자를 보고 읽는 법 고르기', badge: 'あ', label: '읽는 법은?' },
+      word: { title: '단어 맞추기', desc: '뜻을 보고 단어 고르기', badge: '字', label: '이 뜻의 단어는?' },
+      sentence: { title: '문장 読み方', desc: '문장 속 밑줄 단어 읽기 (JLPT 문제1 형식)', badge: '文', label: '밑줄 친 단어의 읽는 법은?' },
+      mix: { title: '전부 섞기', desc: '세 가지 유형이 랜덤으로 출제', badge: '混' },
+    },
+  },
+  toeic: {
+    name: 'TOEIC',
+    levels: ['T600', 'T700', 'T800', 'T900'],
+    modes: {
+      meaning: { title: '뜻 맞추기', desc: '영단어를 보고 뜻 고르기', badge: '意', label: '이 단어의 뜻은?' },
+      word: { title: '단어 맞추기', desc: '뜻을 보고 영단어 고르기', badge: 'A', label: '이 뜻의 단어는?' },
+      blank: { title: '빈칸 채우기', desc: '문장 빈칸에 맞는 단어 고르기 (토익 Part 5 형식)', badge: '文', label: '빈칸에 알맞은 단어는?' },
+      mix: { title: '전부 섞기', desc: '세 가지 유형이 랜덤으로 출제', badge: '混' },
+    },
+  },
 };
+const POS = { n: '명사', v: '동사', adj: '형용사', adv: '부사' };
+const levelName = (lv) => (lv[0] === 'T' ? `${lv.slice(1)}점` : lv);
 
 const $main = document.getElementById('main');
 const $levels = document.getElementById('levels');
@@ -29,7 +47,8 @@ const store = {
 };
 
 const state = {
-  level: store.get('level', 'N5'),
+  subject: store.get('subject', 'jlpt'),
+  level: null,
   tab: 'list',
   query: '',
   hideReading: false,
@@ -43,7 +62,24 @@ const state = {
   wrong: store.get('wrong', {}), // { wordId: 틀린 횟수 }
   quiz: null,
 };
-if (!LEVELS.includes(state.level)) state.level = 'N5';
+if (!SUBJECTS[state.subject]) state.subject = 'jlpt';
+
+const subject = () => SUBJECTS[state.subject];
+const isToeic = () => state.subject === 'toeic';
+const MODES = Object.assign({}, SUBJECTS.jlpt.modes, SUBJECTS.toeic.modes);
+
+// 과목을 바꿀 때마다 그 과목에서 마지막으로 보던 레벨과 문제 유형으로 돌아감
+function loadSubject() {
+  const { levels, modes } = subject();
+  state.level = store.get(`level-${state.subject}`, state.subject === 'jlpt' ? store.get('level', 'N5') : levels[0]);
+  if (!levels.includes(state.level)) state.level = levels[0];
+  if (!modes[state.mode]) state.mode = 'meaning';
+  state.query = '';
+  state.revealed.clear();
+  state.scope = 'all';
+  document.getElementById('title').textContent = `${subject().name} 단어장`;
+  document.title = `${subject().name} 단어장`;
+}
 
 function saveWrong() { store.set('wrong', state.wrong); }
 
@@ -62,7 +98,7 @@ function shuffle(arr) {
 const words = () => WORDS[state.level];
 const wrongWords = () => words().filter((w) => state.wrong[w.id]);
 
-// 読み方 기준 あいうえお순 (레벨별로 한 번만 정렬)
+// 読み方 기준 あいうえお순 (TOEIC은 reading이 단어 그대로라 알파벳순)
 const collator = new Intl.Collator('ja');
 const sortedCache = {};
 const sortedWords = () =>
@@ -74,8 +110,8 @@ const answerOf = (mode, w) => (mode === 'meaning' ? w.meaning : mode === 'readin
 
 // ---------- 레벨 / 탭 ----------
 function renderLevels() {
-  $levels.innerHTML = LEVELS.map(
-    (lv) => `<button data-level="${lv}" class="${lv === state.level ? 'active' : ''}">${lv}</button>`
+  $levels.innerHTML = subject().levels.map(
+    (lv) => `<button data-level="${lv}" class="${lv === state.level ? 'active' : ''}">${levelName(lv)}</button>`
   ).join('');
 }
 
@@ -85,7 +121,7 @@ $levels.addEventListener('click', (e) => {
   state.level = lv;
   state.revealed.clear();
   state.scope = 'all';
-  store.set('level', lv);
+  store.set(`level-${state.subject}`, lv);
   renderLevels();
   render();
   window.scrollTo(0, 0);
@@ -103,10 +139,12 @@ $tabs.forEach((btn) =>
 
 function render() {
   document.body.classList.toggle('in-quiz', !!state.quiz);
+  document.body.classList.toggle('in-settings', state.tab === 'settings' && !state.quiz);
   $tabs.forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
   if (state.quiz) return state.quiz.done ? renderResult() : renderQuestion();
   if (state.tab === 'list') renderList();
   else if (state.tab === 'quiz') renderQuizSetup();
+  else if (state.tab === 'settings') renderSettings();
   else renderWrong();
 }
 
@@ -114,13 +152,13 @@ function render() {
 function renderList() {
   $main.innerHTML = `
     <div class="toolbar">
-      <input class="search" type="search" placeholder="단어, 読み方, 뜻 검색" value="${esc(state.query)}" />
+      <input class="search" type="search" placeholder="${isToeic() ? '단어, 뜻 검색' : '단어, 読み方, 뜻 검색'}" value="${esc(state.query)}" />
       <div class="toggles">
-        <button class="chip ${state.hideReading ? 'on' : ''}" data-toggle="hideReading">読み方 가리기</button>
+        ${isToeic() ? '' : `<button class="chip ${state.hideReading ? 'on' : ''}" data-toggle="hideReading">読み方 가리기</button>`}
         <button class="chip ${state.hideMeaning ? 'on' : ''}" data-toggle="hideMeaning">뜻 가리기</button>
       </div>
       <div class="toggles">
-        <button class="chip" data-order="sorted">あいうえお순</button>
+        <button class="chip" data-order="sorted">${isToeic() ? 'ABC순' : 'あいうえお순'}</button>
         <button class="chip" data-order="shuffled">🔀 섞기</button>
         <span class="count"></span>
       </div>
@@ -175,6 +213,9 @@ function renderRows() {
     : `<li class="empty" style="display:block">검색 결과가 없어요</li>`;
 }
 
+// 단어 아래 작은 줄: JLPT는 読み方, TOEIC은 품사
+const subLine = (w) => (w.pos ? POS[w.pos] : hasKanji(w) ? esc(w.reading) : '&nbsp;');
+
 function rowHtml(w) {
   const open = state.revealed.has(w.id);
   const hr = state.hideReading && !open ? ' hid' : '';
@@ -183,7 +224,7 @@ function rowHtml(w) {
   return `<li data-id="${w.id}">
     <span class="w">${esc(w.word)}${dot}</span>
     <span class="m${hm}">${esc(w.meaning)}</span>
-    <span class="r${hr}">${hasKanji(w) ? esc(w.reading) : '&nbsp;'}</span>
+    <span class="r${hr}">${subLine(w)}</span>
     ${open && w.examples ? w.examples.map((e) => `<span class="ex jp">${esc(e.before)}<u>${esc(e.marked)}</u>${esc(e.after)}<small>${esc(e.ko)}</small></span>`).join('') : ''}
   </li>`;
 }
@@ -192,7 +233,7 @@ function rowHtml(w) {
 function renderWrong() {
   const list = wrongWords().sort((a, b) => state.wrong[b.id] - state.wrong[a.id]);
   if (!list.length) {
-    $main.innerHTML = `<div class="empty">${state.level} 오답이 없어요 🎉<br/>퀴즈에서 틀린 단어가 여기에 모여요.</div>`;
+    $main.innerHTML = `<div class="empty">${levelName(state.level)} 오답이 없어요 🎉<br/>퀴즈에서 틀린 단어가 여기에 모여요.</div>`;
     return;
   }
   $main.innerHTML = `
@@ -204,7 +245,7 @@ function renderWrong() {
         (w) => `<li>
           <span class="w">${esc(w.word)}</span>
           <span class="m">${esc(w.meaning)}</span>
-          <span class="r">${hasKanji(w) ? esc(w.reading) : '&nbsp;'} · ${state.wrong[w.id]}회 틀림</span>
+          <span class="r">${subLine(w)} · ${state.wrong[w.id]}회 틀림</span>
         </li>`
       )
       .join('')}</ul>
@@ -217,7 +258,7 @@ function renderWrong() {
     render();
   };
   document.getElementById('wrong-clear').onclick = () => {
-    if (!confirm(`${state.level} 오답노트를 비울까요?`)) return;
+    if (!confirm(`${levelName(state.level)} 오답노트를 비울까요?`)) return;
     list.forEach((w) => delete state.wrong[w.id]);
     saveWrong();
     render();
@@ -228,7 +269,7 @@ function renderWrong() {
 function quizPool() {
   let pool = state.scope === 'wrong' ? wrongWords() : words();
   if (state.mode === 'reading') pool = pool.filter(hasKanji);
-  if (state.mode === 'sentence') pool = pool.filter((w) => w.examples);
+  if (state.mode === 'sentence' || state.mode === 'blank') pool = pool.filter((w) => w.examples);
   return pool;
 }
 
@@ -241,7 +282,7 @@ function renderQuizSetup() {
   $main.innerHTML = `
     <div class="section-title">문제 유형</div>
     <div class="modes">
-      ${Object.entries(MODES)
+      ${Object.entries(subject().modes)
         .map(
           ([key, m]) => `<button class="mode ${state.mode === key ? 'active' : ''}" data-mode="${key}">
             <span class="badge">${m.badge}</span>
@@ -265,7 +306,7 @@ function renderQuizSetup() {
     </div>
 
     <button class="primary" id="start" ${pool.length ? '' : 'disabled'}>
-      ${state.level} 퀴즈 시작 · ${Math.min(state.count || pool.length, pool.length)}문제
+      ${levelName(state.level)} 퀴즈 시작 · ${Math.min(state.count || pool.length, pool.length)}문제
     </button>`;
 
   $main.querySelectorAll('[data-mode]').forEach((b) =>
@@ -400,6 +441,7 @@ function otherReadingDecoys(parts, slots, others) {
 
 // 품사를 대략 구분해서 같은 품사의 보기를 우선 사용 (동사 문제에 명사 뜻이 섞이지 않게)
 function wordType(w) {
+  if (w.pos) return w.pos;
   const m = w.meaning.split(',')[0].trim();
   if (m.endsWith('다')) return w.word.endsWith('い') ? 'adj' : 'verb';
   if (m.endsWith('함')) return 'na';
@@ -415,7 +457,9 @@ function startQuiz(pool) {
   const picked = shuffle(pool).slice(0, state.count || pool.length);
   const modeFor = (w) => {
     if (state.mode !== 'mix') return state.mode;
-    const options = hasKanji(w) ? ['meaning', 'reading', 'word'] : ['meaning', 'word'];
+    const options = isToeic()
+      ? w.examples ? ['meaning', 'word', 'blank'] : ['meaning', 'word']
+      : hasKanji(w) ? ['meaning', 'reading', 'word'] : ['meaning', 'word'];
     return options[Math.floor(Math.random() * options.length)];
   };
   state.quiz = {
@@ -427,6 +471,11 @@ function startQuiz(pool) {
         const ex = w.examples[Math.floor(Math.random() * w.examples.length)];
         const target = { ...w, word: ex.marked, reading: ex.reading };
         return { word: w, mode, example: ex, answer: ex.reading, choices: makeChoices('reading', target) };
+      }
+      if (mode === 'blank') {
+        // 예문의 빈칸에 들어갈 단어 고르기. 오답은 같은 품사 단어
+        const ex = w.examples[Math.floor(Math.random() * w.examples.length)];
+        return { word: w, mode, example: ex, answer: w.word, choices: makeChoices('word', w) };
       }
       return { word: w, mode, answer: answerOf(mode, w), choices: makeChoices(mode, w) };
     }),
@@ -452,7 +501,9 @@ function renderQuestion() {
   const prompt =
     q.mode === 'sentence'
       ? `<div class="sentence jp">${esc(ex.before)}<u>${esc(ex.marked)}</u>${esc(ex.after)}</div>`
-      : q.mode === 'word'
+      : q.mode === 'blank'
+        ? `<div class="sentence en">${esc(ex.before)}<span class="blank"></span>${esc(ex.after)}</div>`
+        : q.mode === 'word'
         ? `<div class="big ko">${esc(w.meaning)}</div>`
         : `<div class="big jp">${esc(w.word)}</div>`;
   const choiceJp = q.mode !== 'meaning';
@@ -472,7 +523,7 @@ function renderQuestion() {
         </div>
         <div class="face back ${answered ? (isOk ? 'ok' : 'bad') : ''}">
           <span class="result">${answered ? (isOk ? '정답 ⭕' : '오답 ❌') : ''}</span>
-          ${hasKanji(w) ? `<div class="reading">${esc(w.reading)}</div>` : ''}
+          ${w.pos ? `<div class="reading">${POS[w.pos]}</div>` : hasKanji(w) ? `<div class="reading">${esc(w.reading)}</div>` : ''}
           <div class="word">${esc(w.word)}</div>
           <div class="meaning">${esc(w.meaning)}</div>
           ${ex ? `<div class="ex-ko">${esc(ex.before + ex.marked + ex.after)}<br />${esc(ex.ko)}</div>` : ''}
@@ -551,7 +602,7 @@ function renderResult() {
            <ul class="word-list">${qz.missed
              .map(
                (w) => `<li><span class="w">${esc(w.word)}</span><span class="m">${esc(w.meaning)}</span>
-                 <span class="r">${hasKanji(w) ? esc(w.reading) : '&nbsp;'}</span></li>`
+                 <span class="r">${subLine(w)}</span></li>`
              )
              .join('')}</ul>
            <button class="primary" id="retry-missed">틀린 것만 다시 풀기</button>`
@@ -564,6 +615,36 @@ function renderResult() {
   if (retry) retry.onclick = () => { state.mode = qz.mode; startQuiz(qz.missed); };
   document.getElementById('again').onclick = () => { state.quiz = null; state.tab = 'quiz'; render(); };
   document.getElementById('home').onclick = () => { state.quiz = null; state.tab = 'list'; render(); };
+}
+
+// ---------- 설정 ----------
+function renderSettings() {
+  const total = (s) => s.levels.reduce((n, lv) => n + (WORDS[lv]?.length || 0), 0);
+  $main.innerHTML = `
+    <div class="section-title">공부할 시험</div>
+    <div class="modes">
+      ${Object.entries(SUBJECTS)
+        .map(
+          ([key, s]) => `<button class="mode ${state.subject === key ? 'active' : ''}" data-subject="${key}">
+            <span class="badge">${key === 'jlpt' ? '日' : 'EN'}</span>
+            <span><b>${s.name} 단어장</b><small>${s.levels.map(levelName).join(' · ')} · 단어 ${total(s).toLocaleString()}개</small></span>
+          </button>`
+        )
+        .join('')}
+    </div>
+    <div class="section-title">앱 정보</div>
+    <div class="info">버전 v${APP_VERSION}<br />오답노트는 시험·레벨별로 따로 저장돼요.</div>`;
+
+  $main.querySelectorAll('[data-subject]').forEach((b) =>
+    b.addEventListener('click', () => {
+      if (b.dataset.subject === state.subject) return;
+      state.subject = b.dataset.subject;
+      store.set('subject', state.subject);
+      loadSubject();
+      renderLevels();
+      render();
+    })
+  );
 }
 
 // ---------- 키보드 (PC에서 테스트할 때) ----------
@@ -583,6 +664,7 @@ const $top = document.querySelector('.top');
 new ResizeObserver(() => document.documentElement.style.setProperty('--top-h', `${$top.offsetHeight}px`)).observe($top);
 
 document.getElementById('version').textContent = `v${APP_VERSION}`;
+loadSubject();
 renderLevels();
 render();
 
